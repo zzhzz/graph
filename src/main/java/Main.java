@@ -1,7 +1,11 @@
 import com.ibm.wala.cfg.ControlFlowGraph;
 import com.ibm.wala.classLoader.*;
 import com.ibm.wala.core.tests.callGraph.CallGraphTestUtil;
+import com.ibm.wala.dataflow.IFDS.ISupergraph;
+import com.ibm.wala.dataflow.IFDS.TabulationProblem;
+import com.ibm.wala.dataflow.IFDS.TabulationResult;
 import com.ibm.wala.dataflow.graph.BitVectorSolver;
+import com.ibm.wala.examples.analysis.dataflow.ContextSensitiveReachingDefs;
 import com.ibm.wala.fixpoint.BitVectorVariable;
 import com.ibm.wala.fixpoint.IFixedPointSystem;
 import com.ibm.wala.ipa.callgraph.*;
@@ -21,6 +25,8 @@ import com.ibm.wala.types.ClassLoaderReference;
 import com.ibm.wala.util.config.AnalysisScopeReader;
 import com.ibm.wala.util.graph.INodeWithNumber;
 import com.ibm.wala.util.graph.impl.NodeWithNumber;
+import com.ibm.wala.util.intset.IntIterator;
+import com.ibm.wala.util.intset.IntSet;
 import org.javatuples.Pair;
 import soot.PackManager;
 import soot.Transform;
@@ -89,19 +95,20 @@ public class Main {
         }
         AnalysisOptions options = CallGraphTestUtil.makeAnalysisOptions(scope, entrypoints);
         System.out.println("Call Graph Start");
-        CallGraphBuilder<InstanceKey> builder = Util.makeZeroOneCFABuilder(Language.JAVA,
-                options, new AnalysisCacheImpl(), cha, scope);
+        CallGraphBuilder<InstanceKey> builder = Util.makeRTABuilder(options, new AnalysisCacheImpl(), cha, scope);
         CallGraph cg = builder.makeCallGraph(options, null);
         System.out.println("Call Graph Done");
-        ExplodedInterproceduralCFG icfg = ExplodedInterproceduralCFG.make(cg);
-        System.out.println("CFG block size " + icfg.getNumberOfNodes());
         Map<Integer, String> nodes = new HashMap<>();
         List<Pair<Integer, Integer>> edgelist = new ArrayList<>();
-        for(BasicBlockInContext<IExplodedBasicBlock> basicblock: icfg){
+        ContextSensitiveReachingDefs reachingDefs = new ContextSensitiveReachingDefs(cg);
+        System.out.println("DFG Start");
+        TabulationResult<BasicBlockInContext<IExplodedBasicBlock>, CGNode, com.ibm.wala.util.collections.Pair<CGNode, Integer>> result = reachingDefs.analyze();
+        TabulationProblem<BasicBlockInContext<IExplodedBasicBlock>, CGNode, com.ibm.wala.util.collections.Pair<CGNode, Integer>> problem = result.getProblem();
+        ISupergraph<BasicBlockInContext<IExplodedBasicBlock>, CGNode> supergraph = reachingDefs.getSupergraph();
+        for(BasicBlockInContext<IExplodedBasicBlock> basicblock: supergraph){
             IMethod m = basicblock.getMethod();
             IClass klass = m.getDeclaringClass();
             if(klass.getClassLoader().getName().toString().equals("Application")){
-
                 int instruction_index = basicblock.getFirstInstructionIndex();
                 int line_no = -1;
                 if(instruction_index >= 0) {
@@ -109,23 +116,23 @@ public class Main {
                 }
                 String src_name = klass.getName().toString().replace('/', '.').substring(1) + ".java";
                 String blk_line = src_name + ":" + line_no;
-                nodes.put(icfg.getNumber(basicblock), blk_line);
+                nodes.put(supergraph.getNumber(basicblock), blk_line);
             }
         }
-        ContextInsensitiveReachingDefs reachingDefs = new ContextInsensitiveReachingDefs(icfg, cha);
-        System.out.println("DFG Start");
-        BitVectorSolver<BasicBlockInContext<IExplodedBasicBlock>> solver = reachingDefs.analyze();
-        IFixedPointSystem<BitVectorVariable> system = solver.getFixedPointSystem();
-        for(BasicBlockInContext<IExplodedBasicBlock> basicblock: icfg){
+        for(BasicBlockInContext<IExplodedBasicBlock> basicblock: supergraph){
             IMethod m = basicblock.getMethod();
             IClass klass = m.getDeclaringClass();
             if(klass.getClassLoader().getName().toString().equals("Application")){
-                int u = icfg.getNumber(basicblock);
-                BitVectorVariable var = solver.getOut(basicblock);
-                Iterator<NodeWithNumber> succs = (Iterator<NodeWithNumber>) system.getStatementsThatUse(var);
-                while(succs.hasNext()){
-                    NodeWithNumber node = succs.next();
-                    int v = node.getGraphNodeId();
+                int u = supergraph.getNumber(basicblock);
+                IntSet solution = result.getResult(basicblock);
+                IntIterator iterator = solution.intIterator();
+                while(iterator.hasNext()){
+                    int next = iterator.next();
+                    com.ibm.wala.util.collections.Pair<CGNode, Integer> def = reachingDefs.getDomain().getMappedObject(next);
+                    CGNode procedure = def.fst;
+                    Integer instruction_index = def.snd;
+                    BasicBlockInContext<IExplodedBasicBlock> blk = supergraph.getLocalBlock(procedure, instruction_index);
+                    int v = blk.getNumber();
                     edgelist.add(Pair.with(u, v));
                 }
             }
