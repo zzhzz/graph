@@ -1,4 +1,5 @@
 import com.ibm.wala.cfg.ControlFlowGraph;
+import com.ibm.wala.cfg.ShrikeCFG;
 import com.ibm.wala.classLoader.*;
 import com.ibm.wala.core.tests.callGraph.CallGraphTestUtil;
 import com.ibm.wala.dataflow.IFDS.BoundedPartiallyBalancedSolver;
@@ -101,11 +102,14 @@ public class Main {
                 String name = klass.getName().toString();
                 entry_claz_list.add(name.replace('/', '.').substring(1));
 
-                Collection<IMethod> methods = (Collection<IMethod>) klass.getAllMethods();
-                for (IMethod m : methods) {
+                Collection<IBytecodeMethod> methods = (Collection<IBytecodeMethod>) klass.getAllMethods();
+                for (IBytecodeMethod m : methods) {
                     List<String> nodes = new ArrayList<>();
                     List<Pair<Integer, Integer>> edgelist = new ArrayList<>();
                     Map<Integer, Integer> mapnodes = new HashMap<>();
+                    if(m.getInstructions().length == 0){
+                        continue;
+                    }
                     IR ir = cache.getIRFactory().makeIR(m, Everywhere.EVERYWHERE, SSAOptions.defaultOptions());
                     ExplodedControlFlowGraph ecfg = ExplodedControlFlowGraph.make(ir);
                     for(IExplodedBasicBlock basicblock : ecfg){
