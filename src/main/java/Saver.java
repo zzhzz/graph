@@ -16,7 +16,10 @@ public class Saver {
 	static void setPath(String save_path) {
 		path = save_path;
 	}
-
+	static void clear() {
+		nodes.clear();
+		edges.clear();
+	}
 	static void save() {
 		File node_file = new File(path + ".nodelist");
 		File edge_file = new File(path + ".edgelist");
